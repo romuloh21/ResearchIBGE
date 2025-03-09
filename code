@@ -1,0 +1,65 @@
+### TRABALHADORES DO SETOR DE TRANSPORTE, ARMAZENAGEM E CORREIO NA REGIÃO METROPOLITANA DE FLORIANÓPOLIS ###
+
+# Bibliotecas:
+library(PNADcIBGE) # Se não estiver instalada, executar antes: install.packages("PNADcIBGE")
+library(srvyr) # Se não estiver instalada, executar antes: install.packages("srvyr")
+library(dplyr) # Se não estiver instalada, executar antes: install.packages("dplyr")
+library(openxlsx) # Se não estiver instalada, executar antes: install.packages("dplyr")
+
+# Aumentar casas decimais dos resultados apresentados em formato tibble
+options("pillar.sigfig" = 5)
+
+# Pegar os dados da PNAD Contínua, 2º semestre de 2023, 
+# já selecionando algumas variáveis (conferir dicionário: https://ftp.ibge.gov.br/Trabalho_e_Rendimento/Pesquisa_Nacional_por_Amostra_de_Domicilios_continua/Trimestral/Microdados/Documentacao/Dicionario_e_input_20221031.zip)
+dados_pnad <- get_pnadc(year=2023, quarter=2, 
+                        vars=c("UF", "Capital", "RM_RIDE", "V2005","V2007","V2009",
+                               "V2010", "V3001", "V4009", "V4010", "V4013", "V4003", 
+                               "V4041", "V4044", "VD3004", "VD3005", "VD4004A", "VD4009", 
+                               "VD4010", "VD4011", "VD4016", "VD4017", "VD4019", "VD4020"))
+
+# Transformar dados para analisar com pacote srvyr
+dados_pnad_srv <- as_survey(dados_pnad)
+
+# Recortar a base para selecionar apenas a RM de Florianópolis:
+pnad_flp <- dados_pnad_srv %>% 
+  srvyr::filter(RM_RIDE == "Região Metropolitana de Florianópolis (SC)")
+
+
+# Rendimento médio (VD4017) e quantidade de trabalhadores na ocupação primária de "Condutor de Motocicleta" (COD=8321) e nas atividades
+# de "Transporte rodoviário de passageiros" (CNAE=49030), "Transporte rodoviário de cargas" (CNAE=49040) e 
+# "Atividades de malote e entrega" (CNAE=53002)
+gig_flp <- pnad_flp %>% 
+              srvyr::filter(V4010 == "8321" & (V4013=="49030" | V4013=="49040" | V4013=="53002")) %>% 
+              srvyr::group_by(V4010, V4013) %>%                  
+              srvyr::summarise(renda_media = srvyr::survey_mean(VD4017, na.rm=T),
+                               populacao = srvyr::survey_total()) %>%
+              rename(Ocupacao = V4010,
+                     Atividade = V4013) %>%
+              mutate(Ocupacao = case_match(Ocupacao, "8321" ~ "Condutor de Motocicleta"),
+                    Atividade = case_match(Atividade, "49030" ~ "Transporte rodoviário de passageiros",
+                                                      "49040" ~ "Transporte rodoviário de cargas",
+                                                      "53002" ~ "Atividades de malote e entrega"))
+          
+
+# Rendimento médio (VD4017) e quantidade de trabalhadores na ocupação secundária de "Condutor de Motocicleta" (COD=8321) e nas atividades
+# de "Transporte rodoviário de passageiros" (CNAE=49030), "Transporte rodoviário de cargas (CNAE=49040) e 
+# "Atividades de malote e entrega" (CNAE=53002)
+gig_flp_2 <- pnad_flp %>% 
+                srvyr::filter(V4041 == "8321" & (V4044=="49030" | V4044=="49040" | V4044=="53002")) %>% 
+                srvyr::group_by(V4041, V4044) %>%                  
+                srvyr::summarise(renda_media = srvyr::survey_mean(VD4017, na.rm=T),
+                                 populacao = srvyr::survey_total()) %>%
+                rename(Ocupacao = V4041,
+                       Atividade = V4044) %>%
+                mutate(Ocupacao = case_match(Ocupacao, "8321" ~ "Condutor de Motocicleta"),
+                       Atividade = case_match(Atividade, "49030" ~ "Transporte rodoviário de passageiros",
+                                                         "49040" ~ "Transporte rodoviário de cargas",
+                                                         "53002" ~ "Atividades de malote e entrega"))
+
+            
+
+# Unir tabelas num arquivo para salvar como xlsx
+lista_tabelas <- list("GIG_ocup_primaria" = gig_flp, "GIG_ocup_secundaria" = gig_flp_2)
+                      
+# Salvar xlsx
+write.xlsx(lista_tabelas, file = "D:/PNADC GIG RM Floripa.xlsx")
